@@ -1,31 +1,33 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
-import { getAIResponse, getOfflineResponse } from "@/lib/gemini";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { NextResponse } from "next/server";
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { userId, locationName, contextPrompt, offline } = body;
+    const { message, contextPrompt } = await req.json();
 
-    if (userId) {
-      const { data: order } = await supabaseAdmin
-        .from('orders').select('*')
-        .eq('user_id', userId).eq('status', 'paid')
-        .gt('expires_at', new Date().toISOString()).single();
-      if (!order) {
-        return NextResponse.json({ error: "Phiên đã hết hạn. Vui lòng thanh toán lại." }, { status: 401 });
-      }
+    const apiKey = process.env.GEMINI_API_KEY;
+    
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "API Key chưa cấu hình" },
+        { status: 500 }
+      );
     }
 
-    if (offline) {
-      const response = getOfflineResponse(locationName);
-      return NextResponse.json({ reply: response, offline: true });
-    }
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    const response = await getAIResponse(contextPrompt || locationName);
-    return NextResponse.json({ reply: response });
+    const prompt = contextPrompt || `Trả lời ngắn gọn: ${message}`;
+    
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    return NextResponse.json({ reply: text });
   } catch (error: any) {
-    const offlineResponse = getOfflineResponse('unknown');
-    return NextResponse.json({ reply: offlineResponse, offline: true, error: error.message });
+    console.error("API Error:", error);
+    return NextResponse.json(
+      { error: "Lỗi kết nối AI" },
+      { status: 500 }
+    );
   }
 }
